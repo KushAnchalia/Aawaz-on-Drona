@@ -1,0 +1,13 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.20"
+
+[rpc_endpoints]
+monad_testnet = "https://testnet-rpc.monad.xyz"
+monad_mainnet = "https://rpc.monad.xyz"
+
+# [etherscan]
+# monad_testnet = { key = "monadscan", url = "https://testnet.monadvision.com/api" }
+# monad_mainnet = { key = "monadscan", url = "https://monadscan.com/api" }

@@ -1,0 +1,45 @@
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #020617;
+  min-height: 100vh;
+  padding: 2rem;
+  color: #f1f5f9;
+}
+
+/* Ensure all text is visible */
+code {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9em;
+}
+
+/* Improve button visibility */
+button {
+  font-family: inherit;
+}
+
+/* Improve input visibility */
+input {
+  font-family: inherit;
+  color: #333;
+}
+
+input::placeholder {
+  color: #9ca3af;
+}
+
