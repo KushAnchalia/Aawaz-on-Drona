@@ -5,7 +5,7 @@
 
 <br/>
 
-# 🔊 **Aawaz** — The Monad Super Agent
+# 🔊 **Aawaz** — The  Super Agent
 
 > Voice-First Web3 Agent Platform built on the Monad blockchain
 
