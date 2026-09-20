@@ -145,9 +145,9 @@ export default function ConversationalAgent({ onStopSpeech, isLiveOnMount = fals
         // Simple heuristic bot for demo 
         // In production, send to LLM API
         const lower = text.toLowerCase();
-        if (lower.includes("hello") || lower.includes("hi")) return "Hello there! I am Aawaz, your Monad Super Agent.";
-        if (lower.includes("price") || lower.includes("market")) return "The market is looking interesting today. Monad is moving fast!";
-        if (lower.includes("solana") || lower.includes("monad")) return "Monad is a high-performance EVM L1. Aawaz runs on Monad Testnet with MetaMask.";
+        if (lower.includes("hello") || lower.includes("hi")) return "Hello there! I am Aawaz, your Txn Super Agent.";
+        if (lower.includes("price") || lower.includes("market")) return "The market is looking interesting today. Everything is moving fast!";
+        if (lower.includes("solana") || lower.includes("monad") || lower.includes("ethereum")) return "Aawaz works across chains — Ethereum, Solana and more. Just say who to pay and how much.";
         return "That's interesting! Tell me more about " + (text.split(" ").slice(-1)[0] || "it") + ".";
     };
 

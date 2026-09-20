@@ -24,14 +24,23 @@ export async function POST(req: NextRequest) {
 
     let result;
 
-    // If celebrity ID is provided, use celebrity voice
-    if (celebrityId) {
-      result = await generateCelebrityVoice(celebrityId, text);
-    } else {
-      // Use custom reference ID or default generation
+    // Explicit voice model ID always wins (e.g. per-agent referenceId from Fish Studio)
+    if (referenceId && typeof referenceId === "string" && referenceId.trim()) {
       result = await generateFishAudio({
         text,
-        referenceId,
+        referenceId: referenceId.trim(),
+        speed,
+        volume,
+        format,
+        model,
+      });
+    } else if (celebrityId) {
+      // Named celebrity voice (modi / trump / bachchan / custom)
+      result = await generateCelebrityVoice(celebrityId, text);
+    } else {
+      // Account default voice
+      result = await generateFishAudio({
+        text,
         speed,
         volume,
         format,
@@ -48,13 +57,15 @@ export async function POST(req: NextRequest) {
 
     // Return audio blob as response
     if (result.audioBlob) {
-      return new NextResponse(result.audioBlob, {
-        status: 200,
-        headers: {
-          "Content-Type": `audio/${format || "mp3"}`,
-          "Content-Disposition": `attachment; filename="fish-audio-${Date.now()}.${format || "mp3"}"`,
-        },
-      });
+      const headers: Record<string, string> = {
+        "Content-Type": `audio/${format || "mp3"}`,
+        "Content-Disposition": `attachment; filename="fish-audio-${Date.now()}.${format || "mp3"}"`,
+      };
+      if (result.note) {
+        // HTTP headers must be Latin-1 — sanitize anything exotic
+        headers["X-Aawaz-Voice-Note"] = result.note.replace(/[^\x20-\x7E]/g, "");
+      }
+      return new NextResponse(result.audioBlob, { status: 200, headers });
     }
 
     return NextResponse.json(

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useWallet } from "../context/WalletContext";
 import { getExplorerTxUrl } from "../lib/monad";
 import { VoiceAgent } from "../api/voice-agents/route";
@@ -22,6 +22,90 @@ export default function VoiceAgentMarketplace({ onSelectAgent, onStopSpeech }: {
   const [showCreateNFT, setShowCreateNFT] = useState(false);
 
   const [ownedAgents, setOwnedAgents] = useState<string[]>([]);
+
+  // Real Fish Audio previews: cached blob URLs + per-card state
+  const sampleCache = useRef<Record<string, string>>({});
+  const sampleAudio = useRef<HTMLAudioElement | null>(null);
+  const [sampleState, setSampleState] = useState<Record<string, "loading" | "playing">>({});
+  const [sampleEngine, setSampleEngine] = useState<Record<string, string>>({});
+
+  /** Map a marketplace agent to a Fish voice (explicit model ID wins). */
+  const fishVoiceFor = (agent: VoiceAgent): { celebrityId?: string; referenceId?: string } => {
+    if (agent.referenceId && agent.referenceId.trim()) return { referenceId: agent.referenceId.trim() };
+    const n = `${agent.name} ${agent.celebrityName || ""} ${agent.voiceId || ""} ${agent.id}`.toLowerCase();
+    if (n.includes("modi")) return { celebrityId: "narendra-modi" };
+    if (n.includes("bachchan") || n.includes("big b")) return { celebrityId: "amitabh-bachchan" };
+    if (n.includes("trump")) return { celebrityId: "donald-trump" };
+    return { celebrityId: "custom" };
+  };
+
+  const browserFallback = (text: string) => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    }
+  };
+
+  const playSample = async (agent: VoiceAgent) => {
+    onStopSpeech?.();
+    sampleAudio.current?.pause();
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    const msg = `Hello, I am ${agent.celebrityName || agent.name}. ${agent.description.slice(0, 120)}`;
+
+    // Replay cached Fish sample instantly
+    const cached = sampleCache.current[agent.id];
+    if (cached) {
+      const el = sampleAudio.current ?? new Audio();
+      sampleAudio.current = el;
+      el.src = cached;
+      setSampleState((s) => ({ ...s, [agent.id]: "playing" }));
+      el.onended = () => setSampleState((s) => {
+        const c = { ...s };
+        delete c[agent.id];
+        return c;
+      });
+      await el.play().catch(() => undefined);
+      return;
+    }
+
+    setSampleState((s) => ({ ...s, [agent.id]: "loading" }));
+    try {
+      const res = await fetch("/api/fish-audio/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: msg, format: "mp3", ...fishVoiceFor(agent) }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({} as any))).error || "Fish TTS failed");
+      const note = res.headers.get("X-Aawaz-Voice-Note");
+      const blob = await res.blob();
+      if (!blob || blob.size === 0) throw new Error("Empty audio");
+      const url = URL.createObjectURL(blob);
+      sampleCache.current[agent.id] = url;
+      const el = sampleAudio.current ?? new Audio();
+      sampleAudio.current = el;
+      el.src = url;
+      setSampleEngine((s) => ({ ...s, [agent.id]: note ? `🐟 Fish Audio · ${note}` : "🐟 Fish Audio" }));
+      setSampleState((s) => ({ ...s, [agent.id]: "playing" }));
+      el.onended = () => setSampleState((s) => {
+        const c = { ...s };
+        delete c[agent.id];
+        return c;
+      });
+      await el.play().catch(() => undefined);
+    } catch (e) {
+      // No key / voice not configured → honest browser demo voice
+      console.warn("Fish sample failed, browser fallback:", e);
+      setSampleEngine((s) => ({ ...s, [agent.id]: "🔊 browser demo — add FISH_AUDIO_API_KEY for real voice" }));
+      setSampleState((s) => {
+        const c = { ...s };
+        delete c[agent.id];
+        return c;
+      });
+      browserFallback(msg);
+    }
+  };
 
   useEffect(() => {
     fetchAgents();
@@ -119,7 +203,7 @@ export default function VoiceAgentMarketplace({ onSelectAgent, onStopSpeech }: {
         }}>
           <div style={{ fontSize: '5rem', animation: 'float 2s infinite ease-in-out' }}>🛡️</div>
           <h2 style={{ marginTop: '30px', fontSize: "2.5rem", fontWeight: "900", letterSpacing: "-1px" }}>Verifying NFT Ownership...</h2>
-          <p style={{ color: '#6366f1', fontWeight: "800", marginTop: "10px" }}>Securing connection to Monad Testnet</p>
+          <p style={{ color: '#6366f1', fontWeight: "800", marginTop: "10px" }}>Securing connection...</p>
         </div>
       )}
 
@@ -141,7 +225,7 @@ export default function VoiceAgentMarketplace({ onSelectAgent, onStopSpeech }: {
                 Create Your Own Voice NFT
               </h3>
               <p style={{ color: "#94a3b8", fontSize: "0.95rem" }}>
-                Upload celebrity voice samples and mint them as NFTs on Monad
+                Upload celebrity voice samples and mint them as NFTs
               </p>
             </div>
           </div>
@@ -438,10 +522,10 @@ export default function VoiceAgentMarketplace({ onSelectAgent, onStopSpeech }: {
                   <div style={{ fontSize: "1.1rem", color: "white", fontWeight: "900" }}>{agent.price} MON</div>
                 </div>
 
-                {/* Multimedia Interaction: Sample Player */}
+                {/* Sample player row */}
                 <div style={{
                   background: "rgba(255,255,255,0.03)",
-                  padding: "12px",
+                  padding: "12px 14px",
                   borderRadius: "16px",
                   display: "flex",
                   alignItems: "center",
@@ -451,31 +535,39 @@ export default function VoiceAgentMarketplace({ onSelectAgent, onStopSpeech }: {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      onStopSpeech?.();
-                      // Use TTS to simulate specific agent voice sample
-                      const msg = `Hello, I am ${agent.name}. I specialize in ${agent.category} interactions. ${agent.description}`;
-                      const utterance = new SpeechSynthesisUtterance(msg);
-                      utterance.pitch = idx % 2 === 0 ? 0.9 : 1.1; // Variation
-                      utterance.rate = 0.95;
-                      window.speechSynthesis.speak(utterance);
+                      playSample(agent);
                     }}
+                    disabled={sampleState[agent.id] === "loading"}
+                    title={sampleState[agent.id] === "playing" ? "Replay sample" : "Play voice sample"}
                     style={{
-                      width: "35px",
-                      height: "35px",
+                      minWidth: "38px",
+                      width: "38px",
+                      height: "38px",
                       borderRadius: "50%",
-                      background: "#6366f1",
+                      background: sampleState[agent.id] === "loading" ? "#475569" : "linear-gradient(135deg,#6366f1,#a855f7)",
                       border: "none",
                       color: "white",
-                      cursor: "pointer",
+                      cursor: sampleState[agent.id] === "loading" ? "wait" : "pointer",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      fontSize: "0.8rem"
-                    }}>▶</button>
-                  <div style={{ flex: 1, height: "4px", background: "rgba(255,255,255,0.1)", borderRadius: "2px", overflow: "hidden" }}>
-                    <div style={{ width: "40%", height: "100%", background: "#6366f1", animation: "wave 1.5s infinite linear" }} />
+                      fontSize: "0.85rem",
+                      boxShadow: "0 6px 16px rgba(99,102,241,0.35)"
+                    }}>{sampleState[agent.id] === "loading" ? "⏳" : "▶"}</button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: "white", fontSize: "0.82rem", fontWeight: 800 }}>Voice sample</div>
+                    <div style={{
+                      fontSize: "0.72rem",
+                      fontWeight: 700,
+                      marginTop: "2px",
+                      color: !sampleEngine[agent.id] ? "#64748b" : sampleEngine[agent.id].startsWith("🐟") ? "#34d399" : "#fbbf24",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}>
+                      {sampleEngine[agent.id] || "tap ▶ to preview"}
+                    </div>
                   </div>
-                  <span style={{ fontSize: "0.75rem", color: "#94a3b8", fontWeight: "800" }}>0:12</span>
                 </div>
 
                 <div style={{ display: "flex", gap: "0.5rem" }}>

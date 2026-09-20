@@ -68,7 +68,7 @@ export default function TransactionWorkbenchPage() {
             fontWeight: "bold",
           }}
         >
-          🔧 Monad Transaction Workbench
+          🔧 Transaction Workbench
         </h1>
         <p style={{ textAlign: "center", color: "rgba(255,255,255,0.9)", marginBottom: "2rem" }}>
           Analyze, optimize, and prepare transactions before execution

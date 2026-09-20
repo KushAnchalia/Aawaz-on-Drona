@@ -1,9 +1,19 @@
 "use client";
 import { useState, useRef, ReactNode, useEffect } from "react";
 import { useWallet } from "../context/WalletContext";
-import { getExplorerTxUrl, getWalletBalance, MONAD_RPC_URL } from "../lib/monad";
+import { getChain, explorerTxUrl, getEvmProvider } from "../lib/chains";
+import { formatEther } from "ethers";
 import { validateTransfer } from "../lib/policy";
 import { parseWithRegex, ParsedIntent } from "../lib/ai";
+import {
+  expandDollarHandles,
+  extractDollarHandle,
+  loadContacts,
+  normalizeHandle,
+  resolveContact,
+  type Contact,
+} from "../lib/contacts";
+import PaymentsDirectory from "./PaymentsDirectory";
 
 interface TransactionAgentProps {
   onSpeak?: (text: string) => void;
@@ -12,7 +22,7 @@ interface TransactionAgentProps {
 }
 
 export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand }: TransactionAgentProps) {
-  const { address, connected, sendMon, network } = useWallet();
+  const { address, connected, sendNative, chain, symbol, network } = useWallet();
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [textInput, setTextInput] = useState("");
@@ -21,7 +31,39 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
   const [hasProcessedInitial, setHasProcessedInitial] = useState(false);
   const [linkedExchanges, setLinkedExchanges] = useState<string[]>([]);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const recognitionRef = useRef<any>(null);
+
+  const reloadContacts = () => setContacts(loadContacts());
+  useEffect(() => {
+    reloadContacts();
+    window.addEventListener("storage", reloadContacts);
+    window.addEventListener("aawaz-contacts-changed", reloadContacts);
+    return () => {
+      window.removeEventListener("storage", reloadContacts);
+      window.removeEventListener("aawaz-contacts-changed", reloadContacts);
+    };
+  }, []);
+
+  /** Sidebar directory pay: selected contact + amount → confirm → send */
+  const directoryPay = async (c: Contact, amt: number) => {
+    if (!amt || amt <= 0) {
+      setStatus("💰 Enter an amount first.");
+      onSpeak?.("Enter an amount first.");
+      return;
+    }
+    if (!address) {
+      setStatus("⚠️ Please connect your wallet first.");
+      return;
+    }
+    const ok = window.confirm(`Send ${amt} ${symbol} on ${getChain(chain).label} to ${c.label || c.name}?`);
+    if (!ok) {
+      setStatus("Transaction cancelled");
+      return;
+    }
+    setTranscript(`Send ${amt} ${symbol} to ${c.label || c.name}`);
+    await executeTransfer(amt, c.address, c.label || c.name);
+  };
 
   const lower = (transcript || textInput || initialCommand || "").toLowerCase();
   const isMyWallet = lower.includes("my wallet") || lower.includes("my address") || lower.includes("my own");
@@ -33,23 +75,76 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
     }
   }, [initialCommand, hasProcessedInitial]);
 
-  const processCommand = async (text: string) => {
-    if (!text.trim()) return;
+  /** Resolve 0x / solana addr / saved contact name / OWN_WALLET (also accepts old $handle/@handle) */
+  const resolveRecipient = (rawTo: string | undefined, fullText: string): { address?: string; label: string; contact?: Contact } => {
+    if (!rawTo && isMyWallet) return { address: address || undefined, label: "My Wallet" };
+    if (!rawTo) {
+      // plain name fallback, e.g. "send 0.1 to mom" / "can you send 0.5 mod to mom"
+      // tolerates "dollar mom" voice artefacts and trailing punctuation.
+      const all = [...fullText.matchAll(/(?:\bto\b|\bfor\b)\s+(?:dollar\s+)?\$?@?([a-zA-Z][a-zA-Z0-9_\-]*)/gi)];
+      const RESERVED = new Set(["me", "my", "wallet", "dollar", "to", "for", "the", "a"]);
+      for (let i = all.length - 1; i >= 0; i--) {
+        const word = all[i][1];
+        if (word && !RESERVED.has(word.toLowerCase())) {
+          const c = resolveContact(word, loadContacts());
+          if (c) return { address: c.address, label: c.label || c.name, contact: c };
+          // non-contact word: still return it so the UI can say "unknown contact X"
+          return { label: word };
+        }
+      }
+      return { label: "" };
+    }
+    if (rawTo === "OWN_WALLET" || isMyWallet) return { address: address || undefined, label: "My Wallet" };
+    const list = loadContacts();
+    if (rawTo.startsWith("$") || rawTo.startsWith("@")) {
+      const c = resolveContact(rawTo, list);
+      if (c) return { address: c.address, label: c.label || c.name, contact: c };
+      return { label: rawTo };
+    }
+    // plain name that matches a saved contact
+    const plain = resolveContact(rawTo, list);
+    if (plain && !/^0x/i.test(rawTo)) return { address: plain.address, label: plain.label || plain.name, contact: plain };
+    return { address: rawTo, label: rawTo.slice(0, 8) + "..." + rawTo.slice(-6) };
+  };
+
+  const processCommand = async (rawText: string) => {
+    if (!rawText.trim()) return;
+    // Normalize voice artefacts up-front: "dollar mom" / "$mom" / "@mom" → plain "mom"
+    const text = rawText.replace(/\bdollar\s+([a-zA-Z0-9_\-]+)/gi, "$1");
 
     setStatus("⏳ Processing & Parsing Intent...");
     onSpeak?.("Processing your request...");
     setTranscript(text);
 
     try {
+      // Expand saved contact names before LLM so "to mom" becomes a real address (also supports old $mom)
+      const expanded = expandDollarHandles(text, loadContacts());
+      const dollarHandle = extractDollarHandle(text);
+
       let intent: ParsedIntent;
       try {
         const response = await fetch("/api/parse-intent", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text, linked_exchanges: linkedExchanges }),
+          body: JSON.stringify({ text: expanded, linked_exchanges: linkedExchanges }),
         });
         if (!response.ok) throw new Error(`Server Busy`);
         intent = await response.json();
+        // keep original contact name if server stripped it
+        if ((!intent.to || intent.to === expanded) && dollarHandle) {
+          const c = resolveContact(dollarHandle, loadContacts());
+          if (c) intent.to = c.address;
+        }
+        // Plain-name fallback: LLM often drops "to mom" — recover it from the raw text
+        if (!intent.to || intent.to === expanded) {
+          const m = [...text.matchAll(/(?:\bto\b|\bfor\b)\s+(?:dollar\s+)?\$?@?([a-zA-Z][a-zA-Z0-9_\-]*)/gi)].pop();
+          const RESERVED = new Set(["me", "my", "wallet", "dollar", "to", "for", "the", "a"]);
+          if (m && m[1] && !RESERVED.has(m[1].toLowerCase())) {
+            const c = resolveContact(m[1], loadContacts());
+            if (c) intent.to = c.address;
+            else intent.to = m[1];
+          }
+        }
       } catch (error: any) {
         console.warn("Server-side parsing failed, using local browser fallback.", error);
         intent = parseWithRegex(text);
@@ -64,34 +159,42 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
         await new Promise((r) => setTimeout(r, 400));
 
         if (intent.action === "transfer_mon") {
-          if (!intent.amount || (!intent.to && !isMyWallet)) {
+          const resolved = resolveRecipient(intent.to, text);
+          if (!intent.amount || !resolved.address) {
+            const missingHandle = dollarHandle && !resolved.address;
+            setContacts(loadContacts());
             setStatus(
               <div style={{ textAlign: "left", color: "#f1f5f9" }}>
                 <strong style={{ color: "#a78bfa" }}>Transaction Intent Detected 🟣</strong>
                 <br />
                 <div style={{ marginTop: "5px", fontSize: "0.9rem" }}>
                   {!intent.amount && <div style={{ color: "#f87171" }}>❌ Missing Amount (e.g., &quot;0.1&quot;)</div>}
-                  {!intent.to && !isMyWallet && <div style={{ color: "#f87171" }}>❌ Missing Recipient Address</div>}
-                  {intent.amount && <div style={{ color: "#34d399" }}>✅ Amount: {intent.amount} MON</div>}
-                  {(intent.to || isMyWallet) && (
-                    <div style={{ color: "#34d399" }}>
-                      ✅ To: {intent.to === "OWN_WALLET" || isMyWallet ? "My Wallet" : (intent.to || "").slice(0, 10) + "..."}
+                  {!resolved.address && (
+                    <div style={{ color: "#f87171" }}>
+                      ❌ {missingHandle ? (
+                        <>Unknown contact <strong>{normalizeHandle(dollarHandle)}</strong> — save it in Payments below, then retry.</>
+                      ) : (
+                        <>Missing Recipient — pick a saved contact below or paste a 0x/Solana address</>
+                      )}
                     </div>
                   )}
+                  {intent.amount && <div style={{ color: "#34d399" }}>✅ Amount: {intent.amount} {symbol}</div>}
+                  {resolved.address && <div style={{ color: "#34d399" }}>✅ To: {resolved.label}</div>}
                 </div>
                 <p style={{ marginTop: "10px", fontSize: "0.85rem", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "8px" }}>
-                  Try saying: <strong style={{ color: "white" }}>&quot;Send 0.05 MON to 0x...&quot;</strong>
+                  Try saying: <strong style={{ color: "white" }}>&quot;Send 0.05 {symbol} to mom&quot;</strong> or{" "}
+                  <strong style={{ color: "white" }}>&quot;Send 0.05 {symbol} to 0x...&quot;</strong>
                 </p>
               </div>
             );
-            if (!intent.amount) onSpeak?.("I couldn't catch the amount. How much MON do you want to send?");
-            else if (!intent.to && !isMyWallet) onSpeak?.("Who should I send this to?");
+            if (!intent.amount) onSpeak?.(`I couldn't catch the amount. How much ${symbol} do you want to send?`);
+            else if (!resolved.address) onSpeak?.("Who should I send this to? Pick a saved contact.");
             return;
           }
 
-          const recipient = intent.to === "OWN_WALLET" || isMyWallet ? address || undefined : intent.to;
-          if (!recipient) {
-            setStatus(<div style={{ color: "#f87171" }}>Please connect MetaMask to use &quot;on my address&quot;.</div>);
+          const recipient = resolved.address!;
+          if (!address) {
+            setStatus(<div style={{ color: "#f87171" }}>Please connect your wallet first.</div>);
             return;
           }
 
@@ -102,11 +205,7 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
             return;
           }
 
-          const displayAddr =
-            intent.to === "OWN_WALLET" || isMyWallet
-              ? "My Wallet"
-              : recipient.slice(0, 8) + "..." + recipient.slice(-6);
-          const confirmMessage = `Send ${intent.amount} MON to ${displayAddr}?`;
+          const confirmMessage = `Send ${intent.amount} ${symbol} on ${getChain(chain).label} to ${resolved.label}?`;
           const confirmed = window.confirm(confirmMessage);
 
           if (!confirmed) {
@@ -115,12 +214,12 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
             return;
           }
 
-          await executeTransfer(intent.amount, recipient);
+          await executeTransfer(intent.amount, recipient, resolved.label);
         } else if (intent.action === "buy") {
           if (!intent.amount) {
             setStatus(
               <div style={{ color: "#f87171" }}>
-                ❌ <strong>Missing Amount:</strong> How much {intent.asset || "MON"} do you want to buy?
+                ❌ <strong>Missing Amount:</strong> How much {intent.asset || symbol} do you want to buy?
               </div>
             );
             onSpeak?.("Please specify the amount you want to buy.");
@@ -134,7 +233,7 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
               <div style={{ textAlign: "left", color: "#f1f5f9" }}>
                 <strong style={{ color: "#a78bfa" }}>Link an exchange to buy 🎙️</strong>
                 <p style={{ marginTop: "15px", fontSize: "0.95rem" }}>
-                  To buy <strong>{intent.amount} {intent.asset || "MON"}</strong>, choose a destination:
+                  To buy <strong>{intent.amount} {intent.asset || symbol}</strong>, choose a destination:
                 </p>
                 <div style={{ marginTop: "15px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
                   {options.map((ex: string) => (
@@ -164,21 +263,21 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
                 </div>
               </div>
             );
-            onSpeak?.(`To buy ${intent.amount} ${intent.asset || "MON"}, please link an exchange.`);
+            onSpeak?.(`To buy ${intent.amount} ${intent.asset || symbol}, please link an exchange.`);
             return;
           }
 
           const linkedEx = linkedExchanges[0] || intent.exchange;
           setStatus(
             <div style={{ color: "#f1f5f9" }}>
-              Ready to buy <strong>{intent.amount} {intent.asset || "MON"}</strong> via {linkedEx}.
+              Ready to buy <strong>{intent.amount} {intent.asset || symbol}</strong> via {linkedEx}.
               <br />
               <span style={{ fontSize: "0.85rem", opacity: 0.8 }}>
-                On-ramp execution is external — open {linkedEx} to complete acquisition, then transfer MON on Monad.
+                On-ramp execution is external — open {linkedEx} to complete acquisition, then transfer on {getChain(chain).label}.
               </span>
             </div>
           );
-          onSpeak?.(`Buy ${intent.amount} ${intent.asset || "MON"} on ${linkedEx} at market price?`);
+          onSpeak?.(`Buy ${intent.amount} ${intent.asset || symbol} on ${linkedEx} at market price?`);
         } else if (intent.action === "get_balance") {
           if (!address) {
             setStatus("⚠️ Wallet not connected");
@@ -186,8 +285,22 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
           }
           setStatus("⏳ Fetching balance...");
           onSpeak?.("Fetching balance.");
-          const balance = await getWalletBalance(address, network);
-          const balText = `Your balance is ${balance.toFixed(4)} MON`;
+          const cfg = getChain(chain);
+          let balText: string;
+          if (cfg.family === "solana") {
+            const res = await fetch(cfg.rpcUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getBalance", params: [address] }),
+            });
+            const j = await res.json();
+            const sol = (j?.result?.value ?? 0) / 1e9;
+            balText = `Your balance is ${sol.toFixed(4)} SOL`;
+          } else {
+            const provider = getEvmProvider(chain);
+            const bal = await provider.getBalance(address);
+            balText = `Your balance is ${Number(formatEther(bal)).toFixed(4)} ${symbol}`;
+          }
           setStatus(`💰 ${balText}`);
           onSpeak?.(balText);
         } else if (intent.action === "get_address") {
@@ -197,7 +310,7 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
           }
           setStatus(
             <div style={{ wordBreak: "break-all", color: "#f1f5f9" }}>
-              <strong style={{ color: "#a78bfa" }}>Your Monad Address:</strong>
+              <strong style={{ color: "#a78bfa" }}>Your {getChain(chain).label} Address:</strong>
               <br />
               <code
                 style={{
@@ -216,7 +329,7 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
           );
           onSpeak?.("Your account address is " + address);
         } else if (intent.action === "clarify") {
-          setStatus("❌ Could not understand. Please try again.");
+          setStatus("❌ Could not understand. Try e.g. “send 0.1 to mom”. Save mom in Payments first.");
         } else if (intent.action === "cancel") {
           setStatus("Cancelled");
         } else if (intent.action === "analyze_transaction") {
@@ -237,7 +350,7 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
 
   const startListening = () => {
     if (!connected || !address) {
-      setStatus("⚠️ Please connect MetaMask first");
+      setStatus("⚠️ Please connect your wallet first");
       return;
     }
 
@@ -256,12 +369,14 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
 
     recognition.onstart = () => {
       setIsListening(true);
-      setStatus("🎤 Listening...");
+      setStatus("🎤 Listening... (you can say “send 0.1 to mom”)");
       setTranscript("");
     };
 
     recognition.onresult = async (e: any) => {
-      const text = e.results[0][0].transcript;
+      let text: string = e.results[0][0].transcript;
+      // Voice often hears "dollar mom" — strip to plain "mom" so it matches saved contacts (no $ needed)
+      text = text.replace(/\bdollar\s+([a-zA-Z0-9_\-]+)/gi, "$1");
       await processCommand(text);
     };
 
@@ -290,33 +405,40 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
     setTextInput("");
   };
 
-  const executeTransfer = async (amount: number, to: string) => {
+  const executeTransfer = async (amount: number, to: string, label?: string) => {
     if (!address) {
       setStatus("⚠️ Wallet not connected");
       return;
     }
 
     try {
-      setStatus("⏳ Checking balance...");
-      const balance = await getWalletBalance(address, network);
-      if (balance < amount) {
-        setStatus(
-          `❌ Insufficient balance! You have ${balance.toFixed(4)} MON, but need ${amount.toFixed(4)} MON + gas.`
-        );
-        return;
-      }
+      setStatus("⏳ Checking balance & submitting...");
+      console.log("Wallet", address, "Recipient", to, "Chain", chain);
 
-      setStatus("✍️ Confirm in MetaMask...");
-      console.log("MetaMask", address, "Recipient", to, "RPC", MONAD_RPC_URL);
+      const hash = await sendNative(to, amount);
+      const explorerUrl = explorerTxUrl(chain, hash);
 
-      const hash = await sendMon(to, amount);
-      const explorerUrl = getExplorerTxUrl(hash, network);
+      // Mirror to activity log (fans out to DronaHQ when configured)
+      void fetch("/api/dronahq/activity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "send",
+          amount,
+          symbol,
+          to,
+          label,
+          tx: hash,
+          chain,
+          user: address,
+        }),
+      }).catch(() => undefined);
 
       setStatus(
         <div style={{ color: "white" }}>
-          <span style={{ color: "#10b981", fontWeight: "900" }}>✅ Success!</span>
+          <span style={{ color: "#10b981", fontWeight: "900" }}>✅ Success on {getChain(chain).label}!</span>
           <br />
-          <span style={{ fontSize: "0.9rem" }}>Transaction Hash:</span>
+          <span style={{ fontSize: "0.9rem" }}>Sent {amount} {symbol} → {label || to.slice(0, 8) + "..."}</span>
           <br />
           <code
             style={{
@@ -345,7 +467,7 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
               fontWeight: "800",
             }}
           >
-            View on {network === "mainnet" ? "MonadScan" : "MonadVision"} →
+            View on explorer →
           </a>
         </div>
       );
@@ -363,6 +485,8 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
 
   return (
     <div style={{ marginTop: "2rem" }}>
+      {/* ★ Vertical contacts sidebar: recents → select → amount → pay */}
+      <PaymentsDirectory symbol={symbol} disabled={!connected} onPay={directoryPay} />
       <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem", justifyContent: "center" }}>
         <button
           onClick={() => {
@@ -409,7 +533,7 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
               type="text"
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
-              placeholder="Send 0.1 MON to 0x..."
+              placeholder={`Send 0.1 ${symbol} to mom or 0x...`}
               disabled={!connected}
               style={{
                 flex: 1,
@@ -513,9 +637,12 @@ export default function TransactionAgent({ onSpeak, onStopSpeech, initialCommand
             textAlign: "center",
           }}
         >
-          ⚠️ Please connect MetaMask ({network === "mainnet" ? "Monad Mainnet" : "Monad Testnet"}) to start
+          ⚠️ Please connect your wallet ({getChain(chain).label}) to start
         </div>
       )}
+
+      {/* Directory above already manages saved contacts; voice/text $handles resolve from the same book. */}
+      <div style={{ display: "none" }}>{network}</div>
     </div>
   );
 }

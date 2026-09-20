@@ -10,7 +10,7 @@ interface FishVoiceGeneratorProps {
 
 export default function FishVoiceGenerator({ onSpeak, onStopSpeech }: FishVoiceGeneratorProps) {
   const [message, setMessage] = useState("");
-  const [selectedCelebrity, setSelectedCelebrity] = useState<string>("donald-trump");
+  const [selectedCelebrity, setSelectedCelebrity] = useState<string>("narendra-modi");
   const [isGenerating, setIsGenerating] = useState(false);
   const [status, setStatus] = useState<string>("");
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -86,6 +86,7 @@ export default function FishVoiceGenerator({ onSpeak, onStopSpeech }: FishVoiceG
   };
 
   const celebrityOptions = [
+    { id: "narendra-modi", name: "Narendra Modi 🇮🇳", emoji: "🎤" },
     { id: "donald-trump", name: "Donald Trump 🇺🇸", emoji: "🎤" },
     { id: "amitabh-bachchan", name: "Amitabh Bachchan 🇮🇳", emoji: "🎬" },
   ];

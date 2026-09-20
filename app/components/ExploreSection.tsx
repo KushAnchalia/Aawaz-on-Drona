@@ -122,7 +122,7 @@ export default function ExploreSection() {
         },
         {
             title: "Solana Beach",
-            description: "Explore the Monad blockchain statistics.",
+            description: "Explore blockchain statistics.",
             icon: "🏖️",
             link: "https://testnet.monadvision.com"
         },
@@ -155,7 +155,7 @@ export default function ExploreSection() {
                         fontWeight: "900",
                         letterSpacing: "-1px"
                     }}>
-                        Explore Monad Ecosystem
+                        Explore Ecosystem
                     </h2>
                 </div>
                 <p style={{
@@ -164,7 +164,7 @@ export default function ExploreSection() {
                     margin: "10px 0 0 0",
                     lineHeight: "1.6"
                 }}>
-                    Discover the best DeFi protocols, NFT marketplaces, and tools built on Monad
+                    Discover the best DeFi protocols, NFT marketplaces, and tools across chains
                 </p>
             </div>
 

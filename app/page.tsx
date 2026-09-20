@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import AawazLogo from "./components/AawazLogo";
 
@@ -23,6 +23,16 @@ const LandingPage = dynamic(() => import("./components/LandingPage"), {
 export default function Page() {
   const [showApp, setShowApp] = useState(false);
   const [initialCommand, setInitialCommand] = useState("");
+
+  // DronaHQ / embed mode: ?embed=1 skips the landing page and opens the app directly.
+  // ?chain=ethereum|sepolia|monad-testnet|monad-mainnet|solana-devnet|solana-mainnet preselects chain.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("embed") === "1" || q.get("embed") === "true") setShowApp(true);
+    const cmd = q.get("cmd");
+    if (cmd) setInitialCommand(cmd);
+  }, []);
 
   const handleExplore = (cmd?: string) => {
     if (cmd) setInitialCommand(cmd);

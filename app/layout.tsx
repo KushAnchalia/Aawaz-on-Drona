@@ -2,8 +2,8 @@ import Providers from "../providers";
 import "./globals.css";
 
 export const metadata = {
-  title: "Aawaz — The Monad Super Agent",
-  description: "Voice-controlled Web3 agent for Monad Testnet (MetaMask)",
+  title: "Aawaz — Voice-Native Txn Super Agent",
+  description: "Voice-controlled Web3 payments: save contacts once, send crypto by voice or text. Embeddable in DronaHQ.",
 };
 
 export default function RootLayout({

@@ -447,14 +447,14 @@ export default function SmartContractCreator({ onSpeak, onStopSpeech, initialCom
             ) : (
                 <div>
                     <p style={{ color: "#94a3b8", marginBottom: "25px", fontSize: "1.1rem" }}>
-                        🔍 <strong>Audit Your Smart Contract</strong> - Paste your existing Solidity/Monad contract code to detect vulnerabilities and get a security score.
+                        🔍 <strong>Audit Your Smart Contract</strong> - Paste your existing Solidity contract code to detect vulnerabilities and get a security score.
                     </p>
                     
                     <div style={{ marginBottom: "20px" }}>
                         <textarea
                             value={auditCode}
                             onChange={(e) => setAuditCode(e.target.value)}
-                            placeholder="Paste your Solidity smart contract code here (EVM / Monad Testnet)..."
+                            placeholder="Paste your Solidity smart contract code here (EVM)..."
                             style={{
                                 width: "100%",
                                 height: "300px",

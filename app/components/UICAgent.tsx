@@ -172,7 +172,7 @@ export default function UICAgent({ onSpeak, onStopSpeech }: UICAgentProps) {
           🤟 Sign Master AI
         </h3>
         <p style={{ color: "#94a3b8", fontSize: "1.1rem", fontWeight: "500" }}>
-          Non-verbal Monad Testnet interaction via MetaMask
+          Non-verbal multi-chain interaction via your wallet
         </p>
       </div>
 

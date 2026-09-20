@@ -1,7 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
 import AawazLogo from "./AawazLogo";
-import VoiceCommandHub from "./VoiceCommandHub";
 
 interface LandingPageProps {
   onExplore: (initialCommand?: string) => void;
@@ -31,11 +30,11 @@ export default function LandingPage({ onExplore }: LandingPageProps) {
   }, []);
 
   const agents = [
-    { title: "Transaction Agent", icon: "🟣", desc: "Safe, voice-verified Monad transfers and balance checks.", color: "#8b5cf6" },
+    { title: "Transaction Agent", icon: "🟣", desc: "Safe, voice-verified crypto transfers and balance checks.", color: "#8b5cf6" },
     { title: "Hyperliquid Perps", icon: "💧", desc: "AI-guarded leveraged trading with strict risk management.", color: "#3b82f6" },
     { title: "Sign Language Hub", icon: "🤟", desc: "Inclusive gesture-based interaction for non-verbal users.", color: "#818cf8" },
     { title: "Contract Creator", icon: "🧠", desc: "Generate Anchor-ready Rust code from natural speech.", color: "#6366f1" },
-    { title: "Network Analyzer", icon: "🌐", desc: "Real-time Monad health and congestion analysis.", color: "#10b981" },
+    { title: "Network Analyzer", icon: "🌐", desc: "Real-time network health and congestion analysis.", color: "#10b981" },
     { title: "AI Marketplace", icon: "🛒", desc: "Discover and trade custom-trained voice AI agents.", color: "#ec4899" }
   ];
 
@@ -49,7 +48,7 @@ export default function LandingPage({ onExplore }: LandingPageProps) {
   const testimonials = [
     { name: "Solana Whale", text: "Aawaz is the first voice agent that actually understands my complex transaction requests. It's a game changer.", avatar: "🐋" },
     { name: "DeFi Degen", text: "The contract analysis saved me from a potential rug pull. The voice interface is just the cherry on top!", avatar: "🔥" },
-    { name: "Anchor Dev", text: "Generating boilerplate with voice feels like living in the future. Highly recommended for any Monad builder.", avatar: "🛠️" }
+    { name: "Anchor Dev", text: "Generating boilerplate with voice feels like living in the future. Highly recommended for any Web3 builder.", avatar: "🛠️" }
   ];
 
   return (
@@ -80,7 +79,7 @@ export default function LandingPage({ onExplore }: LandingPageProps) {
         /* Removed heavy flowGlow animation to fix "walking slowly" lag */
 
         .navbar {
-          position: fixed;
+          position: sticky;
           top: 0;
           left: 0;
           right: 0;
@@ -326,6 +325,32 @@ export default function LandingPage({ onExplore }: LandingPageProps) {
       </nav>
 
       <header id="hero" className="hero">
+        {/* Tax meme banner — just before Aawaz */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          gap: "20px", padding: "18px 28px", flexWrap: "wrap",
+          background: "linear-gradient(90deg, rgba(127,29,29,0.85), rgba(15,23,42,0.95))",
+          border: "2px solid rgba(248,113,113,0.5)",
+          borderRadius: "24px",
+          boxShadow: "0 8px 32px rgba(127,29,29,0.35)",
+          maxWidth: "1000px", margin: "0 auto 40px",
+        }}>
+          <img
+            src="/tax-meme.jpg"
+            alt="We will tax you"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+            style={{ width: "84px", height: "84px", objectFit: "cover", borderRadius: "50%", border: "3px solid rgba(255,255,255,0.6)", boxShadow: "0 4px 16px rgba(0,0,0,0.5)" }}
+          />
+          <div style={{ color: "white", fontWeight: 900, fontSize: "1.5rem", letterSpacing: "-0.5px" }}>
+            👩‍💼 Oh, you saved money? I WILL TAX YOU! 😏💸
+          </div>
+          <button
+            onClick={() => { if (typeof window !== "undefined") window.speechSynthesis.cancel(); onExplore("Send money"); }}
+            style={{ padding: "12px 30px", borderRadius: "50px", border: "none", background: "white", color: "#020617", fontWeight: 900, cursor: "pointer", fontSize: "1rem", boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}
+          >
+            Send direct ⚡
+          </button>
+        </div>
         <h1 className={`hero-title ${visibleSections.includes('hero') ? 'visible' : ''}`}
           onClick={() => { if (typeof window !== 'undefined') window.speechSynthesis.cancel(); onExplore(); }}
           style={{ cursor: "pointer" }}
@@ -335,27 +360,33 @@ export default function LandingPage({ onExplore }: LandingPageProps) {
         <p style={{
           fontSize: "1.8rem",
           fontWeight: "800",
+          color: "#f1f5f9",
+          marginBottom: "12px",
+          letterSpacing: "-0.5px",
+        }}>
+          Don&apos;t use Aawaz — it charges nothing. Don&apos;t use it for txn. 😏
+        </p>
+        <p style={{
+          fontSize: "1rem",
+          fontWeight: "700",
           color: "#94a3b8",
           marginBottom: "60px",
           letterSpacing: "4px",
           textTransform: "uppercase",
           opacity: 0.8
         }}>
-          The Monad Super Agent
+          The Txn Super Agent
         </p>
 
         <div className="voice-hub-wrapper">
-          <VoiceCommandHub
-            onCommand={(cmd) => {
-              if (typeof window !== "undefined") window.speechSynthesis.cancel();
-              onExplore(cmd);
-            }}
-            onStopSpeech={() => {
-              if (typeof window !== "undefined") window.speechSynthesis.cancel();
-            }}
-          />
+          <button
+            onClick={() => { if (typeof window !== "undefined") window.speechSynthesis.cancel(); onExplore("Send money"); }}
+            style={{ padding: "22px 70px", background: "white", color: "#020617", borderRadius: "60px", fontSize: "1.4rem", fontWeight: "900", border: "none", cursor: "pointer", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+          >
+            Open Transaction Hub ⚡
+          </button>
         </div>
-        <p style={{ marginTop: "30px", color: "#f1f5f9", fontWeight: "900", fontSize: "1.2rem", textShadow: "0 0 10px rgba(100, 100, 100, 0.5)" }}>"Open Hyperliquid Trading"</p>
+        <p style={{ marginTop: "30px", color: "#f1f5f9", fontWeight: "900", fontSize: "1.2rem", textShadow: "0 0 10px rgba(100, 100, 100, 0.5)" }}>"Send 0.1 MON to mom"</p>
       </header>
 
       <section id="workflow" className="section-container">

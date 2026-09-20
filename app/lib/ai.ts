@@ -261,22 +261,44 @@ export async function parseIntent(text: string, customPrompt?: string): Promise<
   }
 }
 
-// Fallback: Regex-based parsing for demo stability (Monad / EVM)
+// Fallback: Regex-based parsing for demo stability (multi-chain: EVM + Solana + saved contact names)
 export function parseWithRegex(text: string): ParsedIntent {
   const lower = text.toLowerCase();
   const EVM_ADDR = /0x[a-fA-F0-9]{40}/;
+  const SOL_ADDR = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/;
+  const HANDLE = /\$([a-zA-Z0-9_\-]+)/;
 
-  // 1. Strict match: send/transfer X MON to 0x...
+  // Helper: plain saved-contact name after "to"/"for" (e.g. "send 0.5 to mom", "pay 0.1 mod to alice").
+  // Skips reserved words and a lone "dollar" from cut-off voice transcripts.
+  const RESERVED = new Set(["me", "my", "wallet", "dollar", "to", "for", "the", "a"]);
+  const plainNameAfterTo = (): string | undefined => {
+    const matches = [...text.matchAll(/(?:\bto\b|\bfor\b)\s+(?:dollar\s+)?\$?@?([a-zA-Z][a-zA-Z0-9_\-]*)/gi)];
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const w = (matches[i][1] || "").toLowerCase();
+      if (w && !RESERVED.has(w)) return matches[i][1];
+    }
+    return undefined;
+  };
+
+  // 1. Strict match: send/transfer/pay X [symbol-typo tolerant] to 0x... | sol-addr | $handle | plain name | "me"/"my wallet"
   const strictMatch = text.match(
-    /(?:send|transfer|pay)\s+([\d.]+)\s*(?:mon|monad|eth|sol)?\s+to\s+(0x[a-fA-F0-9]{40})/i
+    /(?:send|transfer|pay)\s+([\d.]+)\s*[a-zA-Z]*\s+to\s+(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}|\$[a-zA-Z0-9_\-]+|@[a-zA-Z0-9_\-]+|my wallet|me|[a-zA-Z][a-zA-Z0-9_\-]*)/i
   );
   if (strictMatch) {
-    return {
-      action: "transfer_mon",
-      amount: parseFloat(strictMatch[1]),
-      to: strictMatch[2],
-      asset: "MON",
-    };
+    const rawTo = strictMatch[2];
+    const lowTo = rawTo.toLowerCase();
+    if (!RESERVED.has(lowTo)) {
+      return {
+        action: "transfer_mon",
+        amount: parseFloat(strictMatch[1]),
+        to: rawTo,
+        asset: "MON",
+      };
+    }
+    // lone "dollar" etc — fall through to generic handling (amount known, recipient missing)
+    if (!isNaN(parseFloat(strictMatch[1]))) {
+      return { action: "transfer_mon", amount: parseFloat(strictMatch[1]), to: undefined, asset: "MON" };
+    }
   }
 
   const isAcquisition =
@@ -292,9 +314,10 @@ export function parseWithRegex(text: string): ParsedIntent {
     lower.includes("pay");
 
   const amountMatch = lower.match(
-    /(?:buy|send|get|transfer|want|me|a|some|acquire|pay)\s+([\d.]+)\s*(?:mon|monad|eth|sol|solana)?/i
+    /(?:buy|send|get|transfer|want|me|a|some|acquire|pay)\s+([\d.]+)\s*(?:mon|monad|eth|ether|sol|solana)?/i
   );
-  const addressMatch = text.match(EVM_ADDR);
+  const addressMatch = text.match(EVM_ADDR) || text.match(SOL_ADDR);
+  const handleMatch = text.match(HANDLE);
 
   if (isAcquisition && !isTransfer) {
     return {
@@ -307,13 +330,18 @@ export function parseWithRegex(text: string): ParsedIntent {
     };
   }
 
-  if (isTransfer || amountMatch || addressMatch) {
+  if (isTransfer || amountMatch || addressMatch || handleMatch) {
     const amount = amountMatch ? parseFloat(amountMatch[1]) : undefined;
+    const plain = plainNameAfterTo();
     const to = addressMatch
       ? addressMatch[0]
-      : lower.includes("my wallet") || lower.includes("me some")
-        ? "OWN_WALLET"
-        : undefined;
+      : handleMatch
+        ? handleMatch[0] // keep $handle — resolved against address book downstream
+        : plain
+          ? plain // plain saved-contact name, e.g. "mom"
+          : lower.includes("my wallet") || lower.includes("me some")
+            ? "OWN_WALLET"
+            : undefined;
 
     if (amount || to || lower.includes("send") || lower.includes("transfer")) {
       return {

@@ -12,7 +12,17 @@ export default function VoiceGenerator({ agent }: VoiceGeneratorProps) {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [engine, setEngine] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const fishVoiceFor = (): { celebrityId?: string; referenceId?: string } => {
+    if (agent.referenceId && agent.referenceId.trim()) return { referenceId: agent.referenceId.trim() };
+    const n = `${agent.name} ${agent.celebrityName || ""} ${agent.voiceId || ""} ${agent.id}`.toLowerCase();
+    if (n.includes("modi")) return { celebrityId: "narendra-modi" };
+    if (n.includes("bachchan") || n.includes("big b")) return { celebrityId: "amitabh-bachchan" };
+    if (n.includes("trump")) return { celebrityId: "donald-trump" };
+    return { celebrityId: "custom" };
+  };
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,9 +40,34 @@ export default function VoiceGenerator({ agent }: VoiceGeneratorProps) {
     setLoading(true);
     setError(null);
     setAudioUrl(null);
+    setEngine(null);
+
+    // 1) Fish Audio first (real celebrity voice)
+    try {
+      const fishRes = await fetch("/api/fish-audio/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: prompt.trim(), format: "mp3", ...fishVoiceFor() }),
+      });
+      if (fishRes.ok) {
+        const blob = await fishRes.blob();
+        if (blob && blob.size > 0) {
+          setAudioUrl(URL.createObjectURL(blob));
+          const note = fishRes.headers.get("X-Aawaz-Voice-Note");
+          setEngine(note ? `🐟 Fish Audio · ${note}` : "🐟 Fish Audio");
+          setLoading(false);
+          return;
+        }
+        throw new Error("Empty audio from Fish");
+      }
+      const fishErr = await fishRes.json().catch(() => ({} as any));
+      throw new Error(fishErr.error || "Fish TTS unavailable");
+    } catch (fishError: any) {
+      console.warn("Fish generation failed, trying legacy backend...", fishError?.message);
+    }
 
     try {
-      // Try backend first (for ElevenLabs if configured)
+      // 2) Legacy backend (ElevenLabs/mock if configured)
       const response = await fetch("/api/voice/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -46,41 +81,23 @@ export default function VoiceGenerator({ agent }: VoiceGeneratorProps) {
 
       const data = await response.json();
 
-      // If backend returns a data URI (likely mock/silent if no API key), 
-      // OR if we want to ensure sound, let's use the browser TTS as a robust fallback/override for the demo.
-      // The current backend mock is a silent MP3, which is confusing. 
-      // Let's use browser TTS if the backend didn't give us a real remote URL or if it looks like the mock.
-
+      // The legacy backend returns a silent mock MP3 when no key is set — never serve silence.
       const isMock = data.audio && data.audio.startsWith("data:audio/mp3;base64,//uQRA");
 
       if (!response.ok || isMock || !data.audio) {
-        console.log("Using Browser TTS Fallback");
-        // Fallback to Browser Speech Synthesis
-        if ('speechSynthesis' in window) {
-          const utterance = new SpeechSynthesisUtterance(prompt);
-          // Try to match voice style loosely
-          const voices = window.speechSynthesis.getVoices();
-          if (agent.category === "Business") utterance.voice = voices.find(v => v.name.includes("Male")) || null;
-          if (agent.category === "Educational") utterance.voice = voices.find(v => v.name.includes("Female")) || null;
-
-          utterance.rate = 1.0;
-          utterance.pitch = 1.0;
-          window.speechSynthesis.speak(utterance);
-
-          setAudioUrl(null); // No visual player needed if speaking directly, or we could still show success
-        } else {
-          throw new Error("Browser text-to-speech not supported");
-        }
-      } else {
-        setAudioUrl(data.audio);
+        throw new Error("Legacy voice backend has no real voice configured");
       }
-
+      setAudioUrl(data.audio);
+      setEngine("🔊 backend voice");
     } catch (err: any) {
-      console.warn("Backend generation failed, trying browser fallback...", err);
-      // Last resort fallback
+      // 3) Last resort: honest browser demo voice (clearly labelled)
+      console.warn("Backend generation failed, browser fallback...", err);
       if ('speechSynthesis' in window) {
         const utterance = new SpeechSynthesisUtterance(prompt);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
         window.speechSynthesis.speak(utterance);
+        setEngine("🔊 browser demo — add FISH_AUDIO_API_KEY for the real voice");
       } else {
         setError(err.message || "Failed to generate voice");
       }
@@ -150,15 +167,21 @@ export default function VoiceGenerator({ agent }: VoiceGeneratorProps) {
       {audioUrl && (
         <div style={{ marginTop: "1.5rem" }}>
           <div style={{ padding: "1rem", backgroundColor: "#d1fae5", borderRadius: "8px", marginBottom: "1rem" }}>
-            ✅ Voice generated successfully!
+            ✅ Voice generated successfully! <span style={{ fontSize: "0.85rem" }}>{engine}</span>
           </div>
-          <audio controls style={{ width: "100%" }}>
+          <audio controls autoPlay style={{ width: "100%" }}>
             <source src={audioUrl} type="audio/mpeg" />
             Your browser does not support the audio element.
           </audio>
           <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "#666" }}>
             Prompt: "{prompt}"
           </div>
+        </div>
+      )}
+
+      {engine && !audioUrl && !error && (
+        <div style={{ marginTop: "1rem", padding: "1rem", backgroundColor: "#fef3c7", borderRadius: "8px", color: "#92400e" }}>
+          {engine} — playing now 🔊
         </div>
       )}
 

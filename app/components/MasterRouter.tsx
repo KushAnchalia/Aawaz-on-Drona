@@ -4,13 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import AawazLogo from "./AawazLogo";
 
 const TransactionAgent = dynamic(() => import("./TransactionAgent"), { ssr: false });
-const SmartContractCreator = dynamic(() => import("./SmartContractCreator"), { ssr: false });
-const SmartContractOptimizer = dynamic(() => import("./SmartContractOptimizer"), { ssr: false });
 const NetworkAnalyzer = dynamic(() => import("./NetworkAnalyzer"), { ssr: false });
-const VoiceAgentMarketplace = dynamic(() => import("./VoiceAgentMarketplace"), { ssr: false });
-const ConversationalAgent = dynamic<{ onStopSpeech?: () => void, isLiveOnMount?: boolean }>(() => import("./ConversationalAgent"), { ssr: false });
-const ExploreSection = dynamic(() => import("./ExploreSection"), { ssr: false });
-const HyperliquidAgent = dynamic(() => import("./HyperliquidAgent"), { ssr: false });
 const VoiceCommandHub = dynamic(() => import("./VoiceCommandHub"), { ssr: false });
 const UICAgent = dynamic(() => import("./UICAgent"), { ssr: false });
 
@@ -26,10 +20,8 @@ interface MasterRouterProps {
 }
 
 export default function MasterRouter({ initialCommand, onBack }: { initialCommand?: string, onBack?: () => void }) {
-    const [activeAgent, setActiveAgent] = useState<"router" | "transaction" | "contract_creator" | "network" | "optimizer" | "marketplace" | "conversational" | "explore" | "hyperliquid" | "uic">("router");
-    const [messages, setMessages] = useState<{ role: "user" | "system", text: string }[]>([
-        { role: "system", text: "Hello! I am Aawaz, your Monad Super Agent. How can I help you today?" }
-    ]);
+    const [activeAgent, setActiveAgent] = useState<"router" | "transaction" | "network" | "uic">("router");
+    const [messages, setMessages] = useState<{ role: "user" | "system", text: string }[]>([]);
     const [input, setInput] = useState("");
     const [voiceEnabled, setVoiceEnabled] = useState(true); // Enabled by default as requested
     const [isRouting, setIsRouting] = useState(false);
@@ -42,7 +34,6 @@ export default function MasterRouter({ initialCommand, onBack }: { initialComman
     };
 
     const speakText = (text: string) => {
-        if (activeAgent === "conversational") return;
         if (!voiceEnabled) return;
 
         const performSpeech = () => {
@@ -114,24 +105,14 @@ export default function MasterRouter({ initialCommand, onBack }: { initialComman
             const isBuy = lower.includes("buy") || lower.includes("purchase") || lower.includes("get") || lower.includes("buye") || lower.includes("buyeme");
             const isSol = lower.includes("sol") || lower.includes("solaan") || lower.includes("native");
 
-            if ((lower.includes("create") || lower.includes("make") || lower.includes("build") || lower.includes("generate") || lower.includes("write")) &&
-                (lower.includes("contract") || lower.includes("program") || lower.includes("anchor"))) {
-                setMessages(prev => [...prev, { role: "system", text: "Recognized Smart Contract Intent. Opening the Creator Agent now..." }]);
-                setTimeout(() => { setActiveAgent("contract_creator"); setIsRouting(false); }, 1000);
-            } else if ((lower.includes("optimize") || lower.includes("analyze") || lower.includes("audit") || lower.includes("security")) && lower.includes("contract")) {
-                setMessages(prev => [...prev, { role: "system", text: "Opening the Contract Optimizer for you..." }]);
-                setTimeout(() => { setActiveAgent("optimizer"); setIsRouting(false); }, 1000);
-            } else if (lower.includes("hyperliquid") || lower.includes("trade") || lower.includes("perp") || lower.includes("leverage") || lower.includes("long") || lower.includes("short")) {
-                setMessages(prev => [...prev, { role: "system", text: "Connecting to Hyperliquid Perps Agent..." }]);
-                setTimeout(() => { setActiveAgent("hyperliquid"); setIsRouting(false); }, 1000);
-            } else if (isBuy || lower.includes("transaction") || lower.includes("send") || lower.includes("transfer") || isSol || lower.includes("balance") || lower.includes("address") || lower.includes("pay")) {
+            if (isBuy || lower.includes("transaction") || lower.includes("send") || lower.includes("transfer") || isSol || lower.includes("balance") || lower.includes("address") || lower.includes("pay")) {
                 setMessages(prev => [...prev, { role: "system", text: "Routing you to the Transaction Voice Agent..." }]);
                 setTimeout(() => { setActiveAgent("transaction"); setIsRouting(false); }, 1000);
             } else if (lower.includes("intent") || lower.includes("sign") || lower.includes("gesture") || lower.includes("accessibility") || lower.includes("uic")) {
                 setMessages(prev => [...prev, { role: "system", text: "Opening Sign Language Accessibility Agent..." }]);
                 setTimeout(() => { setActiveAgent("uic"); setIsRouting(false); }, 1000);
             } else {
-                setMessages(prev => [...prev, { role: "system", text: "I'm not sure which agent you need. Please choose from: Transactions, Aawaz Live, or Contract Creation." }]);
+                setMessages(prev => [...prev, { role: "system", text: "I'm not sure which agent you need. Please choose from: Transactions, Network Monitor, or Security Analyzer." }]);
                 setIsRouting(false);
                 setAgentPrompt(""); // Clear if not routing
             }
@@ -214,41 +195,12 @@ export default function MasterRouter({ initialCommand, onBack }: { initialComman
                         <TransactionAgent {...commonProps} />
                     </div>
                 );
-            case "contract_creator":
-                return (
-                    <div className="agent-container">
-                        <TopNav />
-                        <h2 className="agent-title">⚡ Smart Contract Studio</h2>
-                        <div style={{ marginBottom: "20px", padding: "20px", background: "rgba(15, 23, 42, 0.4)", borderRadius: "20px", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
-                            <p style={{ color: "#94a3b8", fontSize: "0.95rem", margin: 0 }}>
-                                🛡️ <strong style={{ color: "white" }}>Integrated Security:</strong> Generate Anchor programs with built-in vulnerability analysis and optimization recommendations
-                            </p>
-                        </div>
-                        <SmartContractCreator {...commonProps} />
-                    </div>
-                );
             case "network":
                 return (
                     <div className="agent-container">
                         <TopNav />
                         <h2 className="agent-title">🌐 Network Monitor</h2>
                         <NetworkAnalyzer {...commonProps} />
-                    </div>
-                );
-            case "optimizer":
-                return (
-                    <div className="agent-container">
-                        <TopNav />
-                        <h2 className="agent-title">🛡️ Security Analyzer</h2>
-                        <SmartContractOptimizer {...commonProps} />
-                    </div>
-                );
-            case "marketplace":
-                return (
-                    <div className="agent-container">
-                        <TopNav />
-                        <h2 className="agent-title">🎭 Voice NFT Market</h2>
-                        <VoiceAgentMarketplace onSelectAgent={() => { }} onStopSpeech={stopSpeech} />
                     </div>
                 );
             case "uic":
@@ -267,30 +219,6 @@ export default function MasterRouter({ initialCommand, onBack }: { initialComman
                         </div>
                     </div>
                 );
-            case "conversational":
-                return (
-                    <div className="agent-container">
-                        <TopNav />
-                        <h2 className="agent-title">⚡ Aawaz Live Studio</h2>
-                        <ConversationalAgent onStopSpeech={stopSpeech} isLiveOnMount={true} />
-                    </div>
-                );
-            case "explore":
-                return (
-                    <div className="agent-container">
-                        <TopNav />
-                        <ExploreSection />
-                    </div>
-                );
-            case "hyperliquid":
-                return (
-                    <div className="agent-container">
-                        <TopNav />
-                        <h2 className="agent-title">📊 Perps Trading Desk</h2>
-                        <HyperliquidAgent {...commonProps} />
-                    </div>
-                );
-
             default:
                 return (
                     <div className="router-interface">
@@ -397,7 +325,7 @@ export default function MasterRouter({ initialCommand, onBack }: { initialComman
                                     border: "1px solid rgba(99, 102, 241, 0.3)",
                                     color: "white"
                                 }}
-                                placeholder="Type request (e.g., 'Make a crowdfunding contract', 'Trade MON', or 'Send 0.1 MON')..."
+                                placeholder="Type request (e.g., 'Send 0.1 MON to mom' or 'Check my balance')..."
                             />
                             <button onClick={handleSend} style={{
                                 borderRadius: '30px',
@@ -409,16 +337,35 @@ export default function MasterRouter({ initialCommand, onBack }: { initialComman
                             }}>Send ⚡</button>
                         </div>
 
+                        {/* Superhero first, sidekicks after */}
+                        <div
+                            onClick={() => { stopSpeech(); setActiveAgent("transaction"); }}
+                            style={{
+                                width: "100%",
+                                maxWidth: "800px",
+                                border: "1px solid rgba(16,185,129,0.4)",
+                                borderRadius: "24px",
+                                padding: "24px 28px",
+                                background: "linear-gradient(135deg, rgba(16,185,129,0.18), rgba(99,102,241,0.18))",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "18px",
+                                marginBottom: "6px",
+                            }}
+                        >
+                            <span style={{ fontSize: "2.4rem" }}>🦸</span>
+                            <div style={{ flex: 1 }}>
+                                <h4 style={{ color: "white", fontSize: "1.25rem", fontWeight: "900", margin: 0 }}>💸 Transaction Hub — the superhero</h4>
+                                <p style={{ color: "#a7f3d0", fontSize: "0.88rem", margin: "4px 0 0" }}>Search contacts → enter amount → send. Voice or text.</p>
+                            </div>
+                            <span style={{ color: "white", fontWeight: 900 }}>Open →</span>
+                        </div>
+
                         <div className="quick-actions">
                             {[
-                                { id: "transaction", label: "💸 Transaction Hub", desc: "Secure MON transfers & balance tracking" },
-                                { id: "contract_creator", label: "⚡ Smart Contract Studio", desc: "AI-powered Anchor program creation & security" },
                                 { id: "network", label: "🌐 Network Monitor", desc: "Real-time blockchain health analytics" },
-                                { id: "hyperliquid", label: "📊 Perps Trading Desk", desc: "Voice-controlled perpetual trading" },
-                                { id: "uic", label: "🤟 Gesture Interface", desc: "Sign language & accessibility hub" },
-                                { id: "conversational", label: "⚡ Aawaz Live Studio", desc: "Continuous AI voice assistant" },
-                                { id: "marketplace", label: "🎭 Voice NFT Market", desc: "Premium celebrity voice agents" },
-                                { id: "explore", label: "🚀 Ecosystem Explorer", desc: "Discover Monad DeFi & tools" }
+                                { id: "uic", label: "🤟 Gesture Interface", desc: "Sign language & accessibility hub" }
                             ].map((card) => (
                                 <div
                                     key={card.id}
