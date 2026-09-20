@@ -26,7 +26,7 @@ type Stored = {
 const store: Stored[] = (global as any).__aawazContacts ?? [];
 (global as any).__aawazContacts = store;
 
-export function normalizeName(raw: unknown): string {
+function normalizeName(raw: unknown): string {
   return String(raw ?? "")
     .trim()
     .toLowerCase()
